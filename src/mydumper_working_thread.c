@@ -940,6 +940,7 @@ void process_integer_chunk(struct thread_data *td, struct table_job *tj){
     g_free(cs->integer_step.prefix);
   cs->integer_step.prefix=NULL;
   while ( cs->integer_step.nmin < cs->integer_step.nmax ){
+    g_message("Thread %d: Table %s: nmin %ld nmax %ld step %ld",td->thread_id,dbt->table, cs->integer_step.nmin, cs->integer_step.nmax, cs->integer_step.step);
     process_integer_chunk_job(td,tj);
     g_atomic_int_inc(dbt->chunks_completed);
   }

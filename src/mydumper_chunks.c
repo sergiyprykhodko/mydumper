@@ -214,9 +214,10 @@ union chunk_step *get_next_integer_chunk(struct db_table *dbt){
       if (cs->integer_step.cursor < cs->integer_step.nmax){
       
         guint64 new_minmax = cs->integer_step.nmax - cs->integer_step.cursor > cs->integer_step.step ?
-                           cs->integer_step.nmin + (cs->integer_step.nmax - cs->integer_step.nmin)/2 :
+                           (guint64)ceil( ((cs->integer_step.nmin + (cs->integer_step.nmax - cs->integer_step.nmin)/2) / cs->integer_step.step + 1) * cs->integer_step.step ):
                            cs->integer_step.cursor;
-        union chunk_step * new_cs = new_integer_step(NULL, dbt->field, new_minmax, cs->integer_step.nmax, cs->integer_step.deep + 1, cs->integer_step.step, cs->integer_step.number+pow(2,cs->integer_step.deep), TRUE, cs->integer_step.check_max);
+        g_message("table %s: nmin %ld, nmax %ld, step %ld, new_minmax %ld, deep %d", dbt->table, cs->integer_step.nmin, cs->integer_step.nmax, cs->integer_step.step, new_minmax, cs->integer_step.deep + 1);
+        union chunk_step * new_cs = new_integer_step(NULL, dbt->field, new_minmax, cs->integer_step.nmax, cs->integer_step.deep, cs->integer_step.step, cs->integer_step.number+pow(2,cs->integer_step.deep), TRUE, cs->integer_step.check_max);
         cs->integer_step.deep++;
         cs->integer_step.check_max=TRUE;
         dbt->chunks=g_list_append(dbt->chunks,new_cs);
@@ -385,6 +386,7 @@ gchar * get_escaped_middle_char(MYSQL *conn, gchar *c1, guint c1len, gchar *c2, 
 }
 
 void update_integer_min(MYSQL *conn, struct table_job *tj){
+  return;
   union chunk_step *cs= tj->chunk_step;
   gchar *query = NULL;
   MYSQL_ROW row = NULL;
@@ -394,6 +396,7 @@ void update_integer_min(MYSQL *conn, struct table_job *tj){
                         "SELECT %s `%s` FROM `%s`.`%s` WHERE %s %"G_GUINT64_FORMAT" <= `%s` AND `%s` <= %"G_GUINT64_FORMAT" ORDER BY `%s` ASC LIMIT 1",
                         (detected_server == SERVER_TYPE_MYSQL || detected_server == SERVER_TYPE_MARIADB) ? "/*!40001 SQL_NO_CACHE */": "",
                         tj->dbt->field, tj->dbt->database->name, tj->dbt->table, cs->integer_step.prefix,  cs->integer_step.nmin, tj->dbt->field, tj->dbt->field, cs->integer_step.nmax, tj->dbt->field));
+  g_message("Query1: %s", query);
   g_free(query);
   minmax = mysql_store_result(conn);
 
@@ -412,6 +415,7 @@ void update_integer_min(MYSQL *conn, struct table_job *tj){
 }
 
 void update_integer_max(MYSQL *conn, struct table_job *tj){
+  return;
   union chunk_step *cs= tj->chunk_step;
   gchar *query = NULL;
   MYSQL_ROW row = NULL;
@@ -421,6 +425,7 @@ void update_integer_max(MYSQL *conn, struct table_job *tj){
                         "SELECT %s `%s` FROM `%s`.`%s` WHERE %"G_GUINT64_FORMAT" <= `%s` AND `%s` <= %"G_GUINT64_FORMAT" ORDER BY `%s` DESC LIMIT 1",
                         (detected_server == SERVER_TYPE_MYSQL || detected_server == SERVER_TYPE_MARIADB) ? "/*!40001 SQL_NO_CACHE */": "",
                         tj->dbt->field, tj->dbt->database->name, tj->dbt->table, cs->integer_step.nmin, tj->dbt->field, tj->dbt->field, cs->integer_step.nmax, tj->dbt->field));
+  g_message("Query2: %s", query);
 //  g_free(query);
   minmax = mysql_store_result(conn);
   g_free(query);
@@ -455,6 +460,7 @@ gchar* update_cursor (MYSQL *conn, struct table_job *tj){
                         "SELECT %s `%s` FROM `%s`.`%s` WHERE '%s' <= `%s` AND '%s' <= `%s` AND `%s` <= '%s' ORDER BY `%s` LIMIT 1",
                         (detected_server == SERVER_TYPE_MYSQL || detected_server == SERVER_TYPE_MARIADB) ? "/*!40001 SQL_NO_CACHE */": "",
                         tj->dbt->field, tj->dbt->database->name, tj->dbt->table, cs->char_step.cmin_escaped, tj->dbt->field, middle, tj->dbt->field, tj->dbt->field, cs->char_step.cmax_escaped, tj->dbt->field));
+  g_message("Query3: %s", query);
   g_free(query);
   minmax = mysql_store_result(conn);
 
@@ -511,6 +517,7 @@ gboolean get_new_minmax (struct thread_data *td, struct db_table *dbt, union chu
                         "SELECT %s `%s` FROM `%s`.`%s` WHERE `%s` > (SELECT `%s` FROM `%s`.`%s` WHERE `%s` > '%s' ORDER BY `%s` LIMIT 1) AND '%s' < `%s` AND `%s` < '%s' ORDER BY `%s` LIMIT 1",
                         (detected_server == SERVER_TYPE_MYSQL || detected_server == SERVER_TYPE_MARIADB) ? "/*!40001 SQL_NO_CACHE */": "",
                         dbt->field, dbt->database->name, dbt->table, dbt->field, dbt->field, dbt->database->name, dbt->table, dbt->field, middle, dbt->field, previous->char_step.cursor_escaped!=NULL?previous->char_step.cursor_escaped:previous->char_step.cmin_escaped, dbt->field, dbt->field, previous->char_step.cmax_escaped, dbt->field));
+  g_message("Query4: %s", query);
   g_free(query);
   minmax = mysql_store_result(td->thrconn);
 
@@ -578,7 +585,7 @@ void set_chunk_strategy_for_dbt(MYSQL *conn, struct db_table *dbt){
                             ? "/*!40001 SQL_NO_CACHE */"
                             : "",
                         dbt->field, dbt->field, dbt->field, dbt->field, dbt->database->name, dbt->table, where_option ? "WHERE" : "", where_option ? where_option : ""));
-//  g_message("Query: %s", query);
+  g_message("Query5: %s", query);
   g_free(query);
   minmax = mysql_store_result(conn);
 
@@ -606,8 +613,23 @@ void set_chunk_strategy_for_dbt(MYSQL *conn, struct db_table *dbt){
   case MYSQL_TYPE_SHORT:
     nmin = strtoul(row[0], NULL, 10);
     nmax = strtoul(row[1], NULL, 10) + 1;
-    if ((nmax-nmin) > (4 * rows_per_file)){
-      cs=new_integer_step(g_strdup_printf("`%s` IS NULL OR `%s` = %"G_GUINT64_FORMAT" OR", dbt->field, dbt->field, nmin), dbt->field, nmin, nmax, 0, rows_per_file, 0, FALSE, FALSE);
+    if ((nmax-nmin) > (1 * rows_per_file)){
+      nmin = 0;
+
+      const guint16 MAX_FILES = 100;
+      guint64 estimated_step = nmax / MAX_FILES;
+
+      if(estimated_step > 50000) {
+        estimated_step = 100000;
+      } else {
+        estimated_step = 10000;
+      }
+
+      if( nmax / estimated_step > 5000 ) {
+        estimated_step = pow( 10, (int)floor(log10(nmax)) - 3 );
+      }
+
+      cs=new_integer_step(g_strdup_printf("`%s` IS NULL OR `%s` = %"G_GUINT64_FORMAT" OR", dbt->field, dbt->field, nmin), dbt->field, nmin, nmax, 0, estimated_step, 0, FALSE, FALSE);
       dbt->chunks=g_list_prepend(dbt->chunks,cs);
       g_async_queue_push(dbt->chunks_queue, cs);
       dbt->chunk_type=INTEGER;
